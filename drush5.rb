@@ -1,9 +1,9 @@
 require 'formula'
 
-class Drush4 < Formula
+class Drush5 < Formula
   homepage 'https://github.com/drush-ops/drush'
-  url 'http://ftp.drupal.org/files/projects/drush-7.x-4.6.tar.gz'
-  sha1 '51d7a7743342cb3dabb201b4c5433ab3da06fb40'
+  url 'http://ftp.drupal.org/files/projects/drush-7.x-5.9.tar.gz'
+  sha1 '12533dbc7a18f1fef79a1853a8fdb88171f4fed8'
 
   keg_only "Conflicts with drush in main repository."
 

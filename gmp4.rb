@@ -2,7 +2,10 @@ require 'formula'
 
 class Gmp4 < Formula
   homepage 'http://gmplib.org/'
+  # Track gcc infrastructure releases.
   url 'ftp://ftp.gmplib.org/pub/gmp-4.3.2/gmp-4.3.2.tar.bz2'
+  mirror 'ftp://gcc.gnu.org/pub/gcc/infrastructure/gmp-4.3.2.tar.bz2'
+  mirror 'http://mirror.anl.gov/pub/gnu/gmp/gmp-4.3.2.tar.bz2'
   sha1 'c011e8feaf1bb89158bd55eaabd7ef8fdd101a2c'
 
   keg_only "Conflicts with gmp in main repository."
@@ -35,4 +38,30 @@ class Gmp4 < Formula
     # if everything compiles, so yes, we want to do this step.
     system "make check" unless build.include? "skip-check"
   end
+
+  # Patches gmp.h to remove the __need_size_t define, which
+  # was preventing libc++ builds from getting the ptrdiff_t type
+  # Applied upstream in http://gmplib.org:8000/gmp/raw-rev/6cd3658f5621
+  def patches
+    DATA
+  end
 end
+
+__END__
+diff -r c7ed424a63b2 -r 6cd3658f5621 gmp-h.in
+--- a/gmp-h.in	Tue Oct 08 14:01:35 2013 +0200
++++ b/gmp-h.in	Tue Oct 08 14:45:27 2013 +0200
+@@ -46,13 +46,11 @@
+ #ifndef __GNU_MP__
+ #define __GNU_MP__ 5
+ 
+-#define __need_size_t  /* tell gcc stddef.h we only want size_t */
+ #if defined (__cplusplus)
+ #include <cstddef>     /* for size_t */
+ #else
+ #include <stddef.h>    /* for size_t */
+ #endif
+-#undef __need_size_t
+ 
+ /* Instantiated by configure. */
+ #if ! defined (__GMP_WITHIN_CONFIGURE)

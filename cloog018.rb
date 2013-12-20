@@ -2,7 +2,9 @@ require 'formula'
 
 class Cloog018 < Formula
   homepage 'http://www.cloog.org/'
-  url 'ftp://gcc.gnu.org/pub/gcc/infrastructure/cloog-0.18.0.tar.gz'
+  # Track gcc infrastructure releases.
+  url 'http://www.bastoul.net/cloog/pages/download/count.php3?url=./cloog-0.18.0.tar.gz'
+  mirror 'ftp://gcc.gnu.org/pub/gcc/infrastructure/cloog-0.18.0.tar.gz'
   sha1 '85f620a26aabf6a934c44ca40a9799af0952f863'
 
   keg_only 'Conflicts with cloog in main repository.'
@@ -15,6 +17,7 @@ class Cloog018 < Formula
     args = [
       "--prefix=#{prefix}",
       "--disable-dependency-tracking",
+      "--disable-silent-rules",
       "--with-gmp-prefix=#{Formula.factory("gmp4").opt_prefix}",
       "--with-isl-prefix=#{Formula.factory("isl011").opt_prefix}"
     ]

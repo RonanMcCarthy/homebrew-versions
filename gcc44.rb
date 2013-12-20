@@ -26,15 +26,11 @@ class Gcc44 < Formula
   mirror 'http://ftp.gnu.org/gnu/gcc/gcc-4.4.7/gcc-4.4.7.tar.bz2'
   sha1 'a6c834b0c2f58583da1d093de7a81a20ede9af75'
 
-  option 'enable-cxx', 'Build the g++ compiler'
   option 'enable-fortran', 'Build the gfortran compiler'
-  option 'enable-java', 'Buld the gcj compiler'
-  option 'enable-objc', 'Enable Objective-C language support'
-  option 'enable-objcxx', 'Enable Objective-C++ language support'
+  option 'enable-java', 'Build the gcj compiler'
   option 'enable-all-languages', 'Enable all compilers and languages, except Ada'
   option 'enable-nls', 'Build with native language support (localization)'
   option 'enable-profiled-build', 'Make use of profile guided optimization when bootstrapping GCC'
-  option 'enable-multilib', 'Build with multilib support'
 
   depends_on 'gmp4'
   depends_on 'mpfr2'
@@ -44,9 +40,19 @@ class Gcc44 < Formula
 
   # Patches adapted from macports:
   # http://trac.macports.org/browser/trunk/dports/lang/gcc44/files
-  def patches; DATA; end
+  def patches
+    { # Patches from macports
+      :p0 => [
+        # Fix libffi for ppc
+        'http://trac.macports.org/export/110576/trunk/dports/lang/gcc44/files/ppc_fde_encoding.diff'
+      ]
+    }
+  end
 
   def install
+    # GCC bootstraps itself, so it is OK to have an incompatible C++ stdlib
+    cxxstdlib_check :skip
+
     # GCC will suffer build errors if forced to use a particular linker.
     ENV.delete 'LD'
 
@@ -55,46 +61,38 @@ class Gcc44 < Formula
       # (gnat) to bootstrap.
       languages = %w[c c++ fortran java objc obj-c++]
     else
-      # The C compiler is always built, but additional defaults can be added
-      # here.
-      languages = %w[c]
+      # C, C++, ObjC compilers are always built
+      languages = %w[c c++ objc obj-c++]
 
-      languages << 'c++' if build.include? 'enable-cxx'
       languages << 'fortran' if build.include? 'enable-fortran'
       languages << 'java' if build.include? 'enable-java'
-      languages << 'objc' if build.include? 'enable-objc'
-      languages << 'obj-c++' if build.include? 'enable-objcxx'
     end
 
-    # Sandbox the GCC lib, libexec and include directories so they don't wander
-    # around telling small children there is no Santa Claus. This results in a
-    # partially keg-only brew following suggestions outlined in the "How to
-    # install multiple versions of GCC" section of the GCC FAQ:
-    #     http://gcc.gnu.org/faq.html#multiple
-    gcc_prefix = prefix + 'gcc'
+    version_suffix = version.to_s.slice(/\d\.\d/)
 
     args = [
       "--build=#{arch}-apple-darwin#{osmajor}",
-      # Sandbox everything...
-      "--prefix=#{gcc_prefix}",
-      # ...except the stuff in share...
-      "--with-datarootdir=#{share}",
-      "--mandir=#{man}",
-      # ...and the binaries...
-      "--bindir=#{bin}",
-      # ...which are tagged with a suffix to distinguish them.
+      "--prefix=#{prefix}",
       "--enable-languages=#{languages.join(',')}",
-      "--program-suffix=-#{version.to_s.slice(/\d\.\d/)}",
+      # Make most executables versioned to avoid conflicts.
+      "--program-suffix=-#{version_suffix}",
       "--with-gmp=#{Formula.factory('gmp4').opt_prefix}",
       "--with-mpfr=#{Formula.factory('mpfr2').opt_prefix}",
       "--with-ppl=#{Formula.factory('ppl011').opt_prefix}",
       "--disable-ppl-version-check",
       "--with-cloog=#{Formula.factory('cloog-ppl015').opt_prefix}",
       "--with-system-zlib",
+      # This ensures lib, libexec, include are sandboxed so that they
+      # don't wander around telling little children there is no Santa
+      # Claus.
+      "--enable-version-specific-runtime-libs",
       "--enable-libstdcxx-time=yes",
       "--enable-stage1-checking",
       "--enable-checking=release",
-      # a no-op unless --HEAD is built because in head warnings will raise errs.
+      # Multilib building is broken in GCC 4.4 on Darwin
+      "--disable-multilib",
+      # A no-op unless --HEAD is built because in head warnings will
+      # raise errors. But still a good idea to include.
       "--disable-werror"
     ]
 
@@ -102,12 +100,6 @@ class Gcc44 < Formula
 
     if build.include? 'enable-java' or build.include? 'enable-all-languages'
       args << "--with-ecj-jar=#{Formula.factory('ecj').opt_prefix}/share/java/ecj.jar"
-    end
-
-    if build.include? 'enable-multilib'
-      args << '--enable-multilib'
-    else
-      args << '--disable-multilib'
     end
 
     mkdir 'build' do
@@ -135,55 +127,42 @@ class Gcc44 < Formula
       # deja-gnu formula must be installed in order to do this.
 
       system 'make install'
+    end
 
-      # Remove conflicting manpages in man7
-      man7.rmtree
+    # Handle conflicts between GCC formulae.
+
+    # Remove libffi stuff, which is not needed after GCC is built.
+    Dir.glob(prefix/"**/libffi.*") { |file| File.delete file }
+
+    # Rename libiberty.a.
+    Dir.glob(prefix/"**/libiberty.*") { |file| add_suffix file, version_suffix }
+
+    # Rename man7.
+    Dir.glob(man7/"*.7") { |file| add_suffix file, version_suffix }
+
+    # Even when suffixes are appended, the info pages conflict when
+    # install-info is run. TODO fix this.
+    info.rmtree
+
+    # Rename java properties
+    if build.include? 'enable-java' or build.include? 'enable-all-languages'
+      config_files = [
+        "#{lib}/logging.properties",
+        "#{lib}/security/classpath.security",
+        "#{lib}/i386/logging.properties",
+        "#{lib}/i386/security/classpath.security"
+      ]
+
+      config_files.each do |file|
+        add_suffix file, version_suffix if File.exists? file
+      end
     end
   end
-end
 
-__END__
-diff --git src/powerpc/darwin.S src/powerpc/darwin.S
---- gcc-4.4.7.orig/libffi/src/powerpc/darwin.S
-+++ gcc-4.4.7/libffi/src/powerpc/darwin.S
-@@ -191,17 +191,17 @@ EH_frame1:
- LSCIE1:
- 	.long	0x0	; CIE Identifier Tag
- 	.byte	0x1	; CIE Version
- 	.ascii	"zR\0"	; CIE Augmentation
- 	.byte	0x1	; uleb128 0x1; CIE Code Alignment Factor
- 	.byte	0x7c	; sleb128 -4; CIE Data Alignment Factor
- 	.byte	0x41	; CIE RA Column
- 	.byte	0x1	; uleb128 0x1; Augmentation size
--	.byte	0x90	; FDE Encoding (indirect pcrel)
-+	.byte	0x10	; FDE Encoding (pcrel)
- 	.byte	0xc	; DW_CFA_def_cfa
- 	.byte	0x1	; uleb128 0x1
- 	.byte	0x0	; uleb128 0x0
- 	.align	LOG2_GPR_BYTES
- LECIE1:
- .globl _ffi_call_DARWIN.eh
- _ffi_call_DARWIN.eh:
- LSFDE1:
-diff --git src/powerpc/darwin_closure.S src/powerpc/darwin_closure.S
---- gcc-4.4.7.orig/libffi/src/powerpc/darwin_closure.S
-+++ gcc-4.4.7/libffi/src/powerpc/darwin_closure.S
-@@ -253,17 +253,17 @@ EH_frame1:
- LSCIE1:
- 	.long	0x0	; CIE Identifier Tag
- 	.byte	0x1	; CIE Version
- 	.ascii	"zR\0"	; CIE Augmentation
- 	.byte	0x1	; uleb128 0x1; CIE Code Alignment Factor
- 	.byte	0x7c	; sleb128 -4; CIE Data Alignment Factor
- 	.byte	0x41	; CIE RA Column
- 	.byte	0x1	; uleb128 0x1; Augmentation size
--	.byte	0x90	; FDE Encoding (indirect pcrel)
-+	.byte	0x10	; FDE Encoding (pcrel)
- 	.byte	0xc	; DW_CFA_def_cfa
- 	.byte	0x1	; uleb128 0x1
- 	.byte	0x0	; uleb128 0x0
- 	.align	LOG2_GPR_BYTES
- LECIE1:
- .globl _ffi_closure_ASM.eh
- _ffi_closure_ASM.eh:
- LSFDE1:
+  def add_suffix file, suffix
+    dir = File.dirname(file)
+    ext = File.extname(file)
+    base = File.basename(file, ext)
+    File.rename file, "#{dir}/#{base}-#{suffix}#{ext}"
+  end
+end

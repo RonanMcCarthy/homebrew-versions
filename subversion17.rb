@@ -2,9 +2,9 @@ require 'formula'
 
 class Subversion17 < Formula
   homepage 'http://subversion.apache.org/'
-  url 'http://www.apache.org/dyn/closer.cgi?path=subversion/subversion-1.7.11.tar.bz2'
-  mirror 'http://archive.apache.org/dist/subversion/subversion-1.7.11.tar.bz2'
-  sha1 'd82e187803043b74c072cd5a861ac02e4a027684'
+  url 'http://www.apache.org/dyn/closer.cgi?path=subversion/subversion-1.7.13.tar.bz2'
+  mirror 'http://archive.apache.org/dist/subversion/subversion-1.7.13.tar.bz2'
+  sha1 '844bb756ec505edaa12b9610832bcd21567139f1'
 
   option :universal
   option 'java', 'Build Java bindings'
@@ -13,17 +13,24 @@ class Subversion17 < Formula
   option 'unicode-path', 'Include support for OS X UTF-8-MAC filename'
   option 'with-homebrew-openssl', 'Include OpenSSL support via Homebrew'
 
+  resource 'serf' do
+    url 'http://serf.googlecode.com/files/serf-1.3.2.tar.bz2'
+    sha1 '90478cd60d4349c07326cb9c5b720438cf9a1b5d'
+  end
+
   depends_on 'pkg-config' => :build
 
   # Always build against Homebrew versions instead of system versions for consistency.
   depends_on 'neon'
-  depends_on 'serf'
   depends_on 'sqlite'
   depends_on :python => :optional
   depends_on 'openssl' if build.include? 'with-homebrew-openssl'
 
   # Building Ruby bindings requires libtool
   depends_on :libtool if build.include? 'ruby'
+
+  # For Serf
+  depends_on 'scons' => :build
 
   # If building bindings, allow non-system interpreters
   env :userpaths if (build.include? 'perl') or (build.include? 'ruby')
@@ -33,7 +40,7 @@ class Subversion17 < Formula
 
     # Patch for Subversion handling of OS X UTF-8-MAC filename.
     if build.include? 'unicode-path'
-      ps << "https://raw.github.com/gist/3044094/1648c28f6133bcbb68b76b42669b0dc237c02dba/patch-path.c.diff"
+      ps << "https://gist.github.com/jeffstyr/3044094/raw/1648c28f6133bcbb68b76b42669b0dc237c02dba/patch-path.c.diff"
     end
 
     # Patch to prevent '-arch ppc' from being pulled in from Perl's $Config{ccflags}
@@ -55,10 +62,28 @@ class Subversion17 < Formula
   end if (build.include? 'perl') or (build.include? 'ruby')
 
   def apr_bin
-    superbin or "/usr/bin"
+    Superenv.bin or "/usr/bin"
   end
 
   def install
+    serf_prefix = libexec+'serf'
+
+    resource('serf').stage do
+      # SConstruct merges in gssapi linkflags using scons's MergeFlags,
+      # but that discards duplicate values - including the duplicate
+      # values we want, like multiple -arch values for a universal build.
+      # Passing 0 as the `unique` kwarg turns this behaviour off.
+      inreplace 'SConstruct', 'unique=1', 'unique=0'
+
+      ENV.universal_binary if build.universal?
+      # scons ignores our compiler and flags unless explicitly passed
+      args = %W[PREFIX=#{serf_prefix} GSSAPI=/usr CC=#{ENV.cc}
+                CFLAGS=#{ENV.cflags} LINKFLAGS=#{ENV.ldflags}]
+      args << "OPENSSL=#{Formula.factory('openssl').opt_prefix}" if build.with? 'homebrew-openssl'
+      system "scons", *args
+      system "scons install"
+    end
+
     # Java support doesn't build correctly in parallel:
     # https://github.com/mxcl/homebrew/issues/20415
     ENV.deparallelize
@@ -85,7 +110,7 @@ class Subversion17 < Formula
             "--with-apr=#{apr_bin}",
             "--with-zlib=/usr",
             "--with-sqlite=#{Formula.factory('sqlite').opt_prefix}",
-            "--with-serf=#{Formula.factory('serf').opt_prefix}",
+            "--with-serf=#{serf_prefix}",
             "--disable-neon-version-check",
             "--disable-mod-activation",
             "--disable-nls",

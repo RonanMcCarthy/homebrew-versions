@@ -2,10 +2,15 @@ require 'formula'
 
 class BashCompletion2 < Formula
   homepage 'http://bash-completion.alioth.debian.org/'
-  url 'http://bash-completion.alioth.debian.org/files/bash-completion-2.1.tar.bz2'
+  url 'http://ftp.de.debian.org/debian/pool/main/b/bash-completion/bash-completion_2.1.orig.tar.bz2'
   sha256 '2b606804a7d5f823380a882e0f7b6c8a37b0e768e72c3d4107c51fbe8a46ae4f'
 
   conflicts_with 'bash-completion'
+
+  def patches
+    ["http://anonscm.debian.org/gitweb/?p=bash-completion/bash-completion.git;a=patch;h=f230cfddbd12b8c777040e33bac1174c0e2898af",
+     "http://anonscm.debian.org/gitweb/?p=bash-completion/bash-completion.git;a=patch;h=3ac523f57e8d26e0943dfb2fd22f4a8879741c60"]
+  end
 
   def compdir
     HOMEBREW_PREFIX/'share/bash-completion/completions'

@@ -1,18 +1,28 @@
+# -*- coding: utf-8 -*-
 require 'formula'
 
-class Postgresql91 < Formula
+class Postgresql92 < Formula
   homepage 'http://www.postgresql.org/'
-  url 'http://ftp.postgresql.org/pub/source/v9.1.11/postgresql-9.1.11.tar.bz2'
-  sha256 'ccbc35aae1490ee5878b97a6aea48dad7465cdad296b380542e4303b68cc6f74'
-
-  depends_on 'readline'
-  depends_on 'libxml2' if MacOS.version == :leopard
-  depends_on 'ossp-uuid' => :recommended
+  url 'http://ftp.postgresql.org/pub/source/v9.2.6/postgresql-9.2.6.tar.bz2'
+  sha256 '4ba98053a66e5678af93dbc2956e8b04623f759e174f48940c41f4251cf0f886'
 
   option '32-bit'
-  option 'no-python', 'Build without Python support'
   option 'no-perl', 'Build without Perl support'
+  option 'no-tcl', 'Build without Tcl support'
   option 'enable-dtrace', 'Build with DTrace support'
+
+  depends_on 'readline'
+  depends_on 'libxml2' if MacOS.version <= :leopard # Leopard libxml is too old
+  depends_on 'ossp-uuid' => :recommended
+  depends_on :python => :recommended
+
+  conflicts_with 'postgres-xc',
+    :because => 'postgresql and postgres-xc install the same binaries.'
+
+  fails_with :clang do
+    build 211
+    cause 'Miscompilation resulting in segfault on queries'
+  end
 
   # Fix PL/Python build: https://github.com/mxcl/homebrew/issues/11162
   # Fix uuid-ossp build issues: http://archives.postgresql.org/pgsql-general/2012-07/msg00654.php
@@ -32,14 +42,17 @@ class Postgresql91 < Formula
       --with-bonjour
       --with-gssapi
       --with-krb5
+      --with-ldap
       --with-openssl
+      --with-pam
       --with-libxml
       --with-libxslt
     ]
 
     args << "--with-ossp-uuid" if build.with? 'ossp-uuid'
-    args << "--with-python" unless build.include? 'no-python'
+    args << "--with-python" if build.with? 'python'
     args << "--with-perl" unless build.include? 'no-perl'
+    args << "--with-tcl" unless build.include? 'no-tcl'
     args << "--enable-dtrace" if build.include? 'enable-dtrace'
 
     if build.with? 'ossp-uuid'
@@ -48,14 +61,14 @@ class Postgresql91 < Formula
       ENV.append 'LIBS', `uuid-config --libs`.strip
     end
 
-    if not build.build_32_bit? and MacOS.prefer_64_bit? and not build.include? 'no-python'
-      args << "ARCHFLAGS='-arch x86_64'"
+    if build.with? 'python'
+      args << "ARCHFLAGS='-arch #{MacOS.preferred_arch}'"
       check_python_arch
     end
 
     if build.build_32_bit?
-      ENV.append 'CFLAGS', '-arch i386'
-      ENV.append 'LDFLAGS', '-arch i386'
+      ENV.append 'CFLAGS', "-arch #{MacOS.preferred_arch}"
+      ENV.append 'LDFLAGS', "-arch #{MacOS.preferred_arch}"
     end
 
     system "./configure", *args
@@ -66,12 +79,12 @@ class Postgresql91 < Formula
     # On 64-bit systems, we need to look for a 32-bit Framework Python.
     # The configure script prefers this Python version, and if it doesn't
     # have 64-bit support then linking will fail.
-    framework_python = Pathname.new "/Library/Frameworks/Python.framework/Versions/Current/Python"
+    framework_python = Pathname.new("/Library/Frameworks/Python.framework/Versions/Current/Python")
     return unless framework_python.exist?
-    unless (archs_for_command framework_python).include? :x86_64
+    unless (archs_for_command(framework_python)).include? :x86_64
       opoo "Detected a framework Python that does not have 64-bit support in:"
       puts <<-EOS.undent
-          #{framework_python}
+        #{framework_python}
 
         The configure script seems to prefer this version of Python over any others,
         so you may experience linker problems as described in:
@@ -79,59 +92,28 @@ class Postgresql91 < Formula
 
         To fix this issue, you may need to either delete the version of Python
         shown above, or move it out of the way before brewing PostgreSQL.
-
-        Note that a framework Python in /Library/Frameworks/Python.framework is
-        the "MacPython" version, and not the system-provided version which is in:
-          /System/Library/Frameworks/Python.framework
       EOS
     end
   end
 
   def caveats
-    s = <<-EOS
-    # Build Notes
+    s = <<-EOS.undent
+      initdb #{var}/postgres -E utf8    # create a database
+      postgres -D #{var}/postgres       # serve that database
+      PGDATA=#{var}/postgres postgres   # …alternatively
 
-    If builds of PostgreSQL 9 are failing and you have version 8.x installed,
-    you may need to remove the previous version first. See:
-      https://github.com/mxcl/homebrew/issues/issue/2510
+      If builds of PostgreSQL 9 are failing and you have version 8.x installed,
+      you may need to remove the previous version first. See:
+        https://github.com/mxcl/homebrew/issues/issue/2510
 
-    To build plpython against a specific Python, set PYTHON prior to brewing:
-      PYTHON=/usr/local/bin/python  brew install postgresql
-    See:
-      http://www.postgresql.org/docs/9.1/static/install-procedure.html
+      To migrate existing data from a previous major version (pre-9.2) of PostgreSQL, see:
+        http://www.postgresql.org/docs/9.2/static/upgrading.html
 
-    # Create/Upgrade a Database
-
-    If this is your first install, create a database with:
-      initdb #{var}/postgres -E utf8
-
-    To migrate existing data from a previous major version (pre-9.1) of PostgreSQL, see:
-      http://www.postgresql.org/docs/9.1/static/upgrading.html
-
-    # Loading Extensions
-
-    By default, Homebrew builds all available Contrib extensions.  To see a list of all
-    available extensions, from the psql command line, run:
-      SELECT * FROM pg_available_extensions;
-
-    To load any of the extension names, navigate to the desired database and run:
-      CREATE EXTENSION [extension name];
-
-    For instance, to load the tablefunc extension in the current database, run:
-      CREATE EXTENSION tablefunc;
-
-    For more information on the CREATE EXTENSION command, see:
-      http://www.postgresql.org/docs/9.1/static/sql-createextension.html
-    For more information on extensions, see:
-      http://www.postgresql.org/docs/9.1/static/contrib.html
-
-    # Other
-
-    Some machines may require provisioning of shared memory:
-      http://www.postgresql.org/docs/current/static/kernel-resources.html#SYSVIPC
+      Some machines may require provisioning of shared memory:
+        http://www.postgresql.org/docs/9.2/static/kernel-resources.html#SYSVIPC
     EOS
 
-    s << gem_caveats if MacOS.prefer_64_bit?
+    s << "\n" << gem_caveats if MacOS.prefer_64_bit?
     return s
   end
 
@@ -144,7 +126,6 @@ class Postgresql91 < Formula
   end
 
   plist_options :manual => "pg_ctl -D #{HOMEBREW_PREFIX}/var/postgres -l #{HOMEBREW_PREFIX}/var/postgres/server.log start"
-
 
   def plist; <<-EOS.undent
     <?xml version="1.0" encoding="UTF-8"?>
@@ -167,6 +148,8 @@ class Postgresql91 < Formula
       <true/>
       <key>WorkingDirectory</key>
       <string>#{HOMEBREW_PREFIX}</string>
+      <key>StandardErrorPath</key>
+      <string>#{var}/postgres/server.log</string>
     </dict>
     </plist>
     EOS
